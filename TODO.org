@@ -1,0 +1,4 @@
+* DONE Figure out how to enable rerouting packets on the gateways
+* DONE Write up how to do it on stack overflow?
+* Install strongswan on gateways + try that out
+** https://www.strongswan.org/testing/testresults/ikev2/net2net-psk/
