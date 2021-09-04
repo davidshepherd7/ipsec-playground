@@ -2,6 +2,7 @@
 ## Start the system
 .PHONY: start
 start: strongswan ubuntu-with-tools
+	docker-compose down -t 0
 	docker-compose up --remove-orphans
 
 ## Connect to the containers

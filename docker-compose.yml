@@ -16,7 +16,7 @@ services:
       tail -f /dev/null"
 
   moon:
-    image: ubuntu-with-tools
+    image: strongswan
     cap_add:
       - NET_ADMIN
     hostname: moon
@@ -25,17 +25,18 @@ services:
         ipv4_address: 172.28.0.2
       internet:
         ipv4_address: 172.30.0.2
-    command: >-
-      sh -c "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE &&
-      iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE &&
-      iptables -A FORWARD -i eth1 -j ACCEPT &&
-      iptables -A FORWARD -i eth0 -j ACCEPT &&
-      ip route add 172.29.0.0/16 via 172.30.0.4 &&
-      tail -f /dev/null"
+    command: /entrypoint.sh
+    volumes:
+      - type: bind
+        source: ./moon/ipsec.conf
+        target: /etc/ipsec.conf
+      - type: bind
+        source: ./moon/entrypoint.sh
+        target: /entrypoint.sh
 
 
   sun:
-    image: ubuntu-with-tools
+    image: strongswan
     cap_add:
       - NET_ADMIN
     hostname: sun
@@ -44,13 +45,14 @@ services:
         ipv4_address: 172.29.0.4
       internet:
         ipv4_address: 172.30.0.4
-    command: >-
-      sh -c "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE &&
-      iptables -t nat -A POSTROUTING -o eth1 -j MASQUERADE &&
-      iptables -A FORWARD -i eth1 -j ACCEPT &&
-      iptables -A FORWARD -i eth0 -j ACCEPT &&
-      ip route add 172.28.0.0/16 via 172.30.0.2 &&
-      tail -f /dev/null"
+    command: /entrypoint.sh
+    volumes:
+      - type: bind
+        source: ./sun/ipsec.conf
+        target: /etc/ipsec.conf
+      - type: bind
+        source: ./sun/entrypoint.sh
+        target: /entrypoint.sh
 
   bob:
     image: ubuntu-with-tools
