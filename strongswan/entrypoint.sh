@@ -22,6 +22,9 @@ cat <<EOF > /etc/ipsec.conf
 config setup
     charondebug="ike 1, knl 1, cfg 0"
     uniqueids=no
+    # This is what is actually used to decide the DPD timeout for ikev2 (but
+    # with exponential backoff, 5 retries, and jitter)
+    retransmit_timeout=2.0
 
 conn ikev2-vpn
     auto=start
@@ -31,10 +34,16 @@ conn ikev2-vpn
     # fragmentation=yes
     # forceencaps=yes
 
+    # This doesn't affect authentication failures, you have to retry those manually.
+    keyingtries=%forever
+
     dpdaction=restart
-    dpddelay=30s
-    dpdtimeout=10s
-    rekey=no
+    # How often we send a dpd request if there's no traffic (but, this seems to
+    # only mean the control traffic: running lots of pings and it still sends the dpd
+    # requests).
+    dpddelay=5s
+
+    rekey=yes
     closeaction=restart
 
     left=%any

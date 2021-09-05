@@ -3,15 +3,63 @@
 * DONE Install strongswan on gateways + try that out
 ** https://www.strongswan.org/testing/testresults/ikev2/net2net-psk/
 * DONE Enable control with environment variables?
-* TODO Play with system failures
-** Kill the connection
-** Degrade the connection
-** Restart a container
-* TODO Play with other configuration
-** dpd/closeaction
-** compression
-** fragmentation/MTU/force encapsulation
-** Firewalls etc?
-** Mismatched subnets
-** Do we need all of the ipsec rules?
+* Play with system failures
+** DONE Kill the connection
+*** Finally managed this with
+sudo iptables -I DOCKER-USER -d 172.30.0.4 -j DROP
+sudo iptables -I DOCKER-USER -d 172.30.0.2 -j DROP
+*** Both sides start doing retransmits of a request (with the same message ID, but I think that's a co-incidence)
+**** Looks like it's the DPD detection request
+*** No logging about the dropped pings
+*** Both sides give up after 5 retransmits (around 30-60 seconds I guess?) and then start trying to init a new SA
+**** Also fails
+*** Now I removed the iptables rule
+sudo iptables -D DOCKER-USER -d 172.30.0.4 -j DROP
+sudo iptables -D DOCKER-USER -d 172.30.0.2 -j DROP
+*** on the next retransmit it gets through and the VPN comes back up
+*** I found why this takes so long: https://wiki.strongswan.org/projects/strongswan/wiki/Retransmission
+**** the dpdtimeout is ignored for ikev2, instead it uses a global retransmission timeout which uses exponential backoff (and jitter). In total this takes around 165s.
+**** We can speed this up by 2x by setting retransmit_timeout=2.0
+** DONE Brief connection outage
+*** Seems to do what you would hope: it stops sending pings + starts resend DPD requests while it's down.
+*** As soon as I turn off the iptables rules everything goes back to normal again.
+** DONE One sided connection death
+sudo iptables -I DOCKER-USER -d 172.30.0.4 -j DROP
+*** Doesn't seem to stop the pings, which is super weird. Probably an artifact of my testing setup
+*** Both sides seem to be detecting the outage though, which is good
+*** And everything comes back up afterwards
+** DONE Packet loss
+sudo iptables -I DOCKER-USER -d 172.30.0.4 -m statistic --mode random --probability 0.50 -j DROP
+sudo iptables -I DOCKER-USER -d 172.30.0.2 -m statistic --mode random --probability 0.50 -j DROP
+*** ~half of pings make it, ping reports 49% packet loss.
+*** DPD packets seem to be getting through within 5 retries, but some have reached attempt 5 so eventualy this is going to fail and it will recreate the connection
+**** Yep, within a few minutes I saw this happen. It re-initialised ok though :)
+*** Turning it back off again
+sudo iptables -D DOCKER-USER -d 172.30.0.4 -m statistic --mode random --probability 0.50 -j DROP
+sudo iptables -D DOCKER-USER -d 172.30.0.2 -m statistic --mode random --probability 0.50 -j DROP
+
+** DONE Kill/restart a container
+docker kill ipsec-playground_moon_1
+*** Sun runs DPD, ping starts returning host unreachable
+*** When I bring moon back it immediately inits a new connection and everything is fine again
+* Play with other configuration
+** DONE Incorrect keys
+*** Sun initiated
+*** Moon logged: tried 1 shared key for '172.30.0.4' - '172.30.0.2', but MAC mismatched
+*** Sun logged: received AUTHENTICATION_FAILED notify error
+*** Doesn't seem to be auto retrying!
+**** Looks like this is intentional: https://wiki.strongswan.org/issues/2098
+**** So GCP VPN must be running some other software to automatically retry authentication failures.
+** DONE Mismatched subnets
+*** Changed sun's subnet to /24 (smaller range)
+*** Everything works, and both sides agree to use /24 for that subnet
+*** No warning or error messages in the logs, but the CHILD_SA established log message on each side says the subnets that were chosen.
+*** Weirdly it seems to have established the connection twice: each side initiated one connection. I guess because of the mismatch it tries it again? No packet loss on the ping though.
+** TODO Mismatched key duration times
+** TODO Does rekey fuzz cause downtime if the two ends disagree on when to rekey?
+** TODO fragmentation/MTU/force encapsulation
+** TODO Do we need all of the iptables rules?
+** TODO Firewalls etc?
+** TODO dpd/closeaction
+** TODO compression
 * TODO Try replacing some components with my own code??
