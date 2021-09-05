@@ -24,9 +24,14 @@ config setup
     uniqueids=no
     # This is what is actually used to decide the DPD timeout for ikev2 (but
     # with exponential backoff, 5 retries, and jitter)
-    retransmit_timeout=2.0
+    # retransmit_timeout=2.0
 
 conn ikev2-vpn
+    # Simple proposals for testing parser
+    # esp=aes128-sha256!
+    # ike=aes128-sha256-modp3072
+    ike=aes128-aes256-sha1-modp3072-modp2048,3des-sha1-md5-modp1024!
+
     auto=start
     type=tunnel
     authby=psk

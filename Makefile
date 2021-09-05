@@ -1,7 +1,7 @@
 
 ## Start the system
 .PHONY: start
-start: strongswan ubuntu-with-tools
+start: strongswan ubuntu-with-tools ipsecpy
 	docker-compose down -t 0
 	docker-compose up --remove-orphans
 
@@ -24,6 +24,10 @@ bob:
 .PHONY: strongswan
 strongswan:
 	docker build --tag strongswan ./strongswan/
+
+.PHONY: ipsecpy
+ipsecpy:
+	docker build --tag ipsecpy ./ipsecpy/
 
 .PHONY: ubuntu-with-tools
 ubuntu-with-tools:
