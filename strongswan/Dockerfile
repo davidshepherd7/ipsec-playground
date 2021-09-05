@@ -4,6 +4,6 @@ RUN apt-get update \
     iproute2 inetutils-ping curl host mtr-tiny tcpdump expect \
     && rm -rf /var/lib/apt/lists/*
 
-ADD ./entrypoint.sh /
+COPY ./entrypoint.sh /
 
 ENTRYPOINT /entrypoint.sh
