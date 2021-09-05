@@ -26,13 +26,11 @@ services:
       internet:
         ipv4_address: 172.30.0.2
     command: /entrypoint.sh
-    volumes:
-      - type: bind
-        source: ./moon/ipsec.conf
-        target: /etc/ipsec.conf
-      - type: bind
-        source: ./moon/entrypoint.sh
-        target: /entrypoint.sh
+    environment:
+      REMOTE_IP: "172.30.0.4"
+      PSK: "HELLOWORLD"
+      LOCAL_SUBNET: "172.28.0.0/16"
+      REMOTE_SUBNET: "172.29.0.0/16"
 
 
   sun:
@@ -46,13 +44,11 @@ services:
       internet:
         ipv4_address: 172.30.0.4
     command: /entrypoint.sh
-    volumes:
-      - type: bind
-        source: ./sun/ipsec.conf
-        target: /etc/ipsec.conf
-      - type: bind
-        source: ./sun/entrypoint.sh
-        target: /entrypoint.sh
+    environment:
+      REMOTE_IP: "172.30.0.2"
+      PSK: "HELLOWORLD"
+      LOCAL_SUBNET: "172.29.0.0/16"
+      REMOTE_SUBNET: "172.28.0.0/16"
 
   bob:
     image: ubuntu-with-tools

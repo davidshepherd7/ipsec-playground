@@ -1,4 +1,17 @@
 * DONE Figure out how to enable rerouting packets on the gateways
 * DONE Write up how to do it on stack overflow?
-* Install strongswan on gateways + try that out
+* DONE Install strongswan on gateways + try that out
 ** https://www.strongswan.org/testing/testresults/ikev2/net2net-psk/
+* DONE Enable control with environment variables?
+* TODO Play with system failures
+** Kill the connection
+** Degrade the connection
+** Restart a container
+* TODO Play with other configuration
+** dpd/closeaction
+** compression
+** fragmentation/MTU/force encapsulation
+** Firewalls etc?
+** Mismatched subnets
+** Do we need all of the ipsec rules?
+* TODO Try replacing some components with my own code??
