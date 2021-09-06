@@ -95,7 +95,7 @@ class EncryptionTransformId(Enum):
     ENCR_MAGMA_MGM_MAC_KTREE = 35
 
 
-class PseudorandomFunctionTransformId(Enum):
+class PrfTransformId(Enum):
     PRF_HMAC_MD5 = 1
     PRF_HMAC_SHA1 = 2
     PRF_HMAC_TIGER = 3
@@ -125,7 +125,7 @@ class IntegrityTransformId(Enum):
     AUTH_HMAC_SHA2_512_256 = 14
 
 
-class DiffieHellmanTransformId(Enum):
+class DhTransformId(Enum):
     NONE = 0
     MODP_GROUP_768_BIT = 1
     MODP_GROUP_1024_BIT = 2
@@ -153,7 +153,7 @@ class DiffieHellmanTransformId(Enum):
     GOST3410_2012_512 = 34
 
 
-class ExtendedSequenceNumbersTransformId(Enum):
+class EsnTransformId(Enum):
     NO_EXTENDED_SEQUENCE_NUMBERS = 0
     EXTENDED_SEQUENCE_NUMBERS = 1
 
@@ -197,8 +197,8 @@ class EncryptionTransform:
 
 
 @dataclass(frozen=True)
-class PseudorandomFunctionTransform:
-    tranform_id: PseudorandomFunctionTransformId
+class PrfTransform:
+    tranform_id: PrfTransformId
     attributes: Dict[AttributeType, int]
 
 
@@ -209,34 +209,40 @@ class IntegrityTransform:
 
 
 @dataclass(frozen=True)
-class DiffieHellmanTransform:
-    tranform_id: DiffieHellmanTransformId
+class DhTransform:
+    tranform_id: DhTransformId
     attributes: Dict[AttributeType, int]
 
 
 @dataclass(frozen=True)
-class ExtendedSequenceNumbersTransform:
-    tranform_id: ExtendedSequenceNumbersTransformId
+class EsnTransform:
+    tranform_id: EsnTransformId
     attributes: Dict[AttributeType, int]
 
 
 Transform = Union[
     EncryptionTransform,
     IntegrityTransform,
-    PseudorandomFunctionTransform,
-    DiffieHellmanTransform,
-    ExtendedSequenceNumbersTransform,
+    PrfTransform,
+    DhTransform,
+    EsnTransform,
 ]
 
 
 @dataclass(frozen=True)
 class ESPProposal:
-    transforms: List[Transform]
+    encryption: List[EncryptionTransform]
+    integrity: List[IntegrityTransform]
+    dh: List[DhTransform]
+    esn: List[EsnTransform]
 
 
 @dataclass(frozen=True)
 class IKEProposal:
-    transforms: List[Transform]
+    encryption: List[EncryptionTransform]
+    prf: List[PrfTransform]
+    integrity: List[IntegrityTransform]
+    dh: List[DhTransform]
 
 
 SAProposal = Union[ESPProposal, IKEProposal]
@@ -304,17 +310,11 @@ def parse_transform(data: bytes) -> Tuple[bytes, Transform]:
     elif transform_type is TransformType.INTEGRITY_ALGORITHM:
         transform = IntegrityTransform(IntegrityTransformId(transform_id), attributes)
     elif transform_type is TransformType.PSEUDORANDOM_FUNCTION:
-        transform = PseudorandomFunctionTransform(
-            PseudorandomFunctionTransformId(transform_id), attributes
-        )
+        transform = PrfTransform(PrfTransformId(transform_id), attributes)
     elif transform_type is TransformType.DIFFIE_HELLMAN_GROUP:
-        transform = DiffieHellmanTransform(
-            DiffieHellmanTransformId(transform_id), attributes
-        )
+        transform = DhTransform(DhTransformId(transform_id), attributes)
     elif transform_type is TransformType.EXTENDED_SEQUENCE_NUMBERS:
-        transform = ExtendedSequenceNumbersTransform(
-            ExtendedSequenceNumbersTransformId(transform_id), attributes
-        )
+        transform = EsnTransform(EsnTransformId(transform_id), attributes)
     else:
         assert_unreachable(transform_type)
 
@@ -340,13 +340,24 @@ def parse_sa_proposal(data: bytes) -> Tuple[bytes, SAProposal]:
         data, transform = parse_transform(data)
         transforms.append(transform)
 
+    encryptions = [t for t in transforms if isinstance(t, EncryptionTransform)]
+    prfs = [t for t in transforms if isinstance(t, PrfTransform)]
+    integrities = [t for t in transforms if isinstance(t, IntegrityTransform)]
+    dhs = [t for t in transforms if isinstance(t, DhTransform)]
+    esns = [t for t in transforms if isinstance(t, EsnTransform)]
+    # TODO(david): Filter out NONE transforms + ignore?
+
+    # TODO(david): Validate that the ones that are mandatory aren't empty lists?
+
     proposal: SAProposal
     if protocol_id == 1:
-        proposal = IKEProposal(transforms=transforms)
+        assert len(esns) == 0
+        proposal = IKEProposal(encryptions, prfs, integrities, dhs)
     elif protocol_id == 2:
         assert False
     elif protocol_id == 3:
-        proposal = ESPProposal(transforms=transforms)
+        assert len(prfs) == 0
+        proposal = ESPProposal(encryptions, integrities, dhs, esns)
     else:
         assert False
 
