@@ -49,6 +49,19 @@ class PayloadType(Enum):
     # 53 	Encrypted and Authenticated Fragment 	SKF 	[RFC7383]
     # 54 	Puzzle Solution 	PS
 
+    @staticmethod
+    def from_class(t: "IkePayload") -> "PayloadType":
+        if isinstance(t, SecurityAssociationPayload):
+            return PayloadType.SECURITY_ASSOCIATION
+        elif isinstance(t, KeyExchangePayload):
+            return PayloadType.KEY_EXCHANGE
+        elif isinstance(t, NoncePayload):
+            return PayloadType.NONCE
+        elif isinstance(t, NotifyPayload):
+            return PayloadType.NOTIFY
+        else:
+            assert_unreachable(t)
+
 
 class TransformType(Enum):
     ENCRYPTION_ALGORITHM = 1
@@ -273,6 +286,22 @@ class IkeHeader:
             length=int.from_bytes(data[24:28], "big"),
         )
 
+    def encode(self) -> bytes:
+        # TODO?
+        assert self.major_version == 2
+        assert self.minor_version == 0
+
+        return (
+            self.initiator_spi.to_bytes(8, "big")
+            + self.responder_spi.to_bytes(8, "big")
+            + self.next_payload.value.to_bytes(1, "big")
+            + (0b0010_0000).to_bytes(1, "big")  # version 2.0
+            + self.exchange_type.value.to_bytes(1, "big")
+            + self.flags.to_bytes(1, "big")
+            + self.message_id.to_bytes(4, "big")
+            + self.length.to_bytes(4, "big")
+        )
+
 
 class AttributeType(Enum):
     KEY_LENGTH = 14
@@ -465,6 +494,9 @@ class SecurityAssociationPayload:
 
         return SecurityAssociationPayload(proposals=proposals)
 
+    def encode(self) -> bytes:
+        return b""
+
 
 @dataclass(frozen=True)
 class KeyExchangePayload:
@@ -478,6 +510,9 @@ class KeyExchangePayload:
             public_key=data[4:],
         )
 
+    def encode(self) -> bytes:
+        return b""
+
 
 @dataclass(frozen=True)
 class NoncePayload:
@@ -487,6 +522,9 @@ class NoncePayload:
     def parse(data: bytes) -> "NoncePayload":
         assert len(data) >= 16 and len(data) <= 256
         return NoncePayload(nonce=data)
+
+    def encode(self) -> bytes:
+        return b""
 
 
 @dataclass(frozen=True)
@@ -516,6 +554,9 @@ class NotifyPayload:
 
         return NotifyPayload(protocol_id, message_type, spi, notification_data)
 
+    def encode(self) -> bytes:
+        return b""
+
 
 IkePayload = Union[
     SecurityAssociationPayload, KeyExchangePayload, NoncePayload, NotifyPayload
@@ -524,8 +565,35 @@ IkePayload = Union[
 
 @dataclass(frozen=True)
 class IkeMessage:
-    header: IkeHeader
+    initiator_spi: int
+    responder_spi: int
+    exchange_type: ExchangeType
+    message_id: int
+
     payloads: List[IkePayload]
+
+    def encode(self) -> bytes:
+        encoded_payloads = b"".join(p.encode() for p in self.payloads)
+
+        header = IkeHeader(
+            initiator_spi=self.initiator_spi,
+            responder_spi=self.responder_spi,
+            next_payload=(
+                PayloadType.from_class(self.payloads[0])
+                if len(self.payloads) > 0
+                else PayloadType.NO_NEXT_PAYLOAD
+            ),
+            major_version=2,
+            minor_version=0,
+            exchange_type=self.exchange_type,
+            flags=0,  # TODO(david): This isn't a valid set of flags, we need to
+            # set the initiator/response flag at least.
+            message_id=self.message_id,
+            length=len(encoded_payloads) + 28,
+        )
+        return header.encode() + encoded_payloads
+
+
 def parse_ike_payload_header(data: bytes) -> Tuple[PayloadType, bool, int]:
     return (
         PayloadType(int.from_bytes(data[0:1], "big")),
@@ -581,8 +649,55 @@ def parse_message(data: bytes) -> IkeMessage:
             payload_type = next_payload_type
             data = data[length:]
 
-    return IkeMessage(header, payloads)
+    return IkeMessage(
+        initiator_spi=header.initiator_spi,
+        responder_spi=header.responder_spi,
+        exchange_type=header.exchange_type,
+        message_id=header.message_id,
+        payloads=payloads,
+    )
 
+
+@dataclass(frozen=True)
+class RemoteState:
+    spi: int
+    current_message_id: int
+
+    diffie_hellman_value: bytes
+    nonce: bytes
+
+
+REMOTES: Dict[int, RemoteState] = {}
+OUR_SPI: int = 102938471223
+
+
+def handle_message(message: IkeMessage) -> Tuple[IkeMessage, RemoteState]:
+    assert message.exchange_type == ExchangeType.IKE_SA_INIT
+    return handle_sa_init(message)
+
+
+def handle_sa_init(message: IkeMessage) -> Tuple[IkeMessage, RemoteState]:
+    sa: SecurityAssociationPayload = message.payloads[0]  # type:ignore
+    ke: KeyExchangePayload = message.payloads[1]  # type:ignore
+    nonce: NoncePayload = message.payloads[2]  # type:ignore
+    # Ignore anything else for now
+
+    remote_state = RemoteState(
+        spi=message.initiator_spi,
+        current_message_id=message.message_id,
+        diffie_hellman_value=ke.public_key,
+        nonce=nonce.nonce,
+    )
+
+    response = IkeMessage(
+        initiator_spi=message.initiator_spi,
+        responder_spi=OUR_SPI,
+        exchange_type=message.exchange_type,
+        message_id=message.message_id,
+        payloads=[],
+    )
+
+    return response, remote_state
 
 
 def main() -> None:
@@ -597,8 +712,15 @@ def main() -> None:
             # TODO(david): Need to support reading incrementally from socket +
             # parsing as we go.
             data, addr = sock.recvfrom(8024)
-            print("received message: %s" % data.hex())
+            print(f"received message from {addr}: {data.hex()}")
             message = parse_message(data)
+
+            response, state = handle_message(message)
+            REMOTES[state.spi] = state
+
+            response_raw = response.encode()
+            print(f"sending message to {addr}: {response_raw.hex()}")
+            sock.sendto(response_raw, addr)
 
         except Exception as e:
             print("Failed with exception", traceback.format_exc())

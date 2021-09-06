@@ -62,4 +62,7 @@ docker kill ipsec-playground_moon_1
 ** TODO Firewalls etc?
 ** TODO dpd/closeaction
 ** TODO compression
-* TODO Try replacing some components with my own code??
+* Encode flags correctly
+* Real encoding for payloads
+* Real payloads for SA_INIT response
+* Hopefully strongswan accepts my response?
