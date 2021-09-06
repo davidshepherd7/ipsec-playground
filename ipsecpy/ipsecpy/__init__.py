@@ -24,7 +24,7 @@ class ExchangeType(Enum):
     # 43 	IKE_INTERMEDIATE 	[draft-ietf-ipsecme-ikev2-intermediate]
 
 
-class NextPayload(Enum):
+class PayloadType(Enum):
     NO_NEXT_PAYLOAD = 0
     SECURITY_ASSOCIATION = 33
     KEY_EXCHANGE = 34
@@ -158,11 +158,99 @@ class EsnTransformId(Enum):
     EXTENDED_SEQUENCE_NUMBERS = 1
 
 
+from enum import Enum
+
+
+class NotifyMessageType(Enum):
+    # Errors:
+    UNSUPPORTED_CRITICAL_PAYLOAD = 1
+    INVALID_IKE_SPI = 4
+    INVALID_MAJOR_VERSION = 5
+    INVALID_SYNTAX = 7
+    INVALID_MESSAGE_ID = 9
+    INVALID_SPI = 11
+    NO_PROPOSAL_CHOSEN = 14
+    INVALID_KE_PAYLOAD = 17
+    AUTHENTICATION_FAILED = 24
+    SINGLE_PAIR_REQUIRED = 34
+    NO_ADDITIONAL_SAS = 35
+    INTERNAL_ADDRESS_FAILURE = 36
+    FAILED_CP_REQUIRED = 37
+    TS_UNACCEPTABLE = 38
+    INVALID_SELECTORS = 39
+    UNACCEPTABLE_ADDRESSES = 40
+    UNEXPECTED_NAT_DETECTED = 41
+    USE_ASSIGNED_HoA = 42
+    TEMPORARY_FAILURE = 43
+    CHILD_SA_NOT_FOUND = 44
+    INVALID_GROUP_ID = 45
+    AUTHORIZATION_FAILED = 46
+
+    # Statuses
+    INITIAL_CONTACT = 16384
+    SET_WINDOW_SIZE = 16385
+    ADDITIONAL_TS_POSSIBLE = 16386
+    IPCOMP_SUPPORTED = 16387
+    NAT_DETECTION_SOURCE_IP = 16388
+    NAT_DETECTION_DESTINATION_IP = 16389
+    COOKIE = 16390
+    USE_TRANSPORT_MODE = 16391
+    HTTP_CERT_LOOKUP_SUPPORTED = 16392
+    REKEY_SA = 16393
+    ESP_TFC_PADDING_NOT_SUPPORTED = 16394
+    NON_FIRST_FRAGMENTS_ALSO = 16395
+    MOBIKE_SUPPORTED = 16396
+    ADDITIONAL_IP4_ADDRESS = 16397
+    ADDITIONAL_IP6_ADDRESS = 16398
+    NO_ADDITIONAL_ADDRESSES = 16399
+    UPDATE_SA_ADDRESSES = 16400
+    COOKIE2 = 16401
+    NO_NATS_ALLOWED = 16402
+    AUTH_LIFETIME = 16403
+    MULTIPLE_AUTH_SUPPORTED = 16404
+    ANOTHER_AUTH_FOLLOWS = 16405
+    REDIRECT_SUPPORTED = 16406
+    REDIRECT = 16407
+    REDIRECTED_FROM = 16408
+    TICKET_LT_OPAQUE = 16409
+    TICKET_REQUEST = 16410
+    TICKET_ACK = 16411
+    TICKET_NACK = 16412
+    TICKET_OPAQUE = 16413
+    LINK_ID = 16414
+    USE_WESP_MODE = 16415
+    ROHC_SUPPORTED = 16416
+    EAP_ONLY_AUTHENTICATION = 16417
+    CHILDLESS_IKEV2_SUPPORTED = 16418
+    QUICK_CRASH_DETECTION = 16419
+    IKEV2_MESSAGE_ID_SYNC_SUPPORTED = 16420
+    IPSEC_REPLAY_COUNTER_SYNC_SUPPORTED = 16421
+    IKEV2_MESSAGE_ID_SYNC = 16422
+    IPSEC_REPLAY_COUNTER_SYNC = 16423
+    SECURE_PASSWORD_METHODS = 16424
+    PSK_PERSIST = 16425
+    PSK_CONFIRM = 16426
+    ERX_SUPPORTED = 16427
+    IFOM_CAPABILITY = 16428
+    SENDER_REQUEST_ID = 16429
+    IKEV2_FRAGMENTATION_SUPPORTED = 16430
+    SIGNATURE_HASH_ALGORITHMS = 16431
+    CLONE_IKE_SA_SUPPORTED = 16432
+    CLONE_IKE_SA = 16433
+    PUZZLE = 16434
+    USE_PPK = 16435
+    PPK_IDENTITY = 16436
+    NO_PPK_AUTH = 16437
+    INTERMEDIATE_EXCHANGE_SUPPORTED = 16438
+    IP4_ALLOWED = 16439
+    IP6_ALLOWED = 16440
+
+
 @dataclass(frozen=True)
 class IkeHeader:
     initiator_spi: int
     responder_spi: int
-    next_payload: NextPayload
+    next_payload: PayloadType
     major_version: int
     minor_version: int
     exchange_type: ExchangeType
@@ -176,7 +264,7 @@ class IkeHeader:
         return IkeHeader(
             initiator_spi=int.from_bytes(data[0:8], "big"),
             responder_spi=int.from_bytes(data[8:16], "big"),
-            next_payload=NextPayload(int.from_bytes(data[16:17], "big")),
+            next_payload=PayloadType(int.from_bytes(data[16:17], "big")),
             major_version=data[17] >> 4,
             minor_version=data[17] & 0b00001111,
             exchange_type=ExchangeType(int.from_bytes(data[18:19], "big")),
@@ -254,7 +342,7 @@ def chunk(xs: List[T], size: int) -> List[List[T]]:
     return [xs[i : i + size] for i in range(0, len(xs), size)]
 
 
-DEBUG = True
+DEBUG = False
 
 
 def dump_bytes(data: bytes) -> None:
@@ -378,18 +466,75 @@ class SecurityAssociationPayload:
         return SecurityAssociationPayload(proposals=proposals)
 
 
-IkePayload = Union[SecurityAssociationPayload]
+@dataclass(frozen=True)
+class KeyExchangePayload:
+    group: int
+    public_key: bytes
+
+    @staticmethod
+    def parse(data: bytes) -> "KeyExchangePayload":
+        return KeyExchangePayload(
+            group=int.from_bytes(data[0:2], "big"),
+            public_key=data[4:],
+        )
 
 
-def parse_ike_payload_header(data: bytes) -> Tuple[NextPayload, bool, int]:
+@dataclass(frozen=True)
+class NoncePayload:
+    nonce: bytes
+
+    @staticmethod
+    def parse(data: bytes) -> "NoncePayload":
+        assert len(data) >= 16 and len(data) <= 256
+        return NoncePayload(nonce=data)
+
+
+@dataclass(frozen=True)
+class NotifyPayload:
+    # TODO(david): Merge these two optionals?
+    protocol_id: Optional[int]
+    message_type: NotifyMessageType
+    spi: Optional[int]
+    # TODO(david): Maybe parse this?
+    data: bytes
+
+    @staticmethod
+    def parse(data: bytes) -> "NotifyPayload":
+        protocol_id: Optional[int] = int.from_bytes(data[0:1], "big")
+        spi_size = int.from_bytes(data[1:2], "big")
+        message_type = NotifyMessageType(int.from_bytes(data[2:4], "big"))
+
+        if spi_size == 0:
+            assert protocol_id == 0
+            spi = None
+            protocol_id = None
+            notification_data = data[4:]
+        else:
+            assert protocol_id != 0
+            spi = int.from_bytes(data[4 : 4 + spi_size], "big")
+            notification_data = data[4 + spi_size :]
+
+        return NotifyPayload(protocol_id, message_type, spi, notification_data)
+
+
+IkePayload = Union[
+    SecurityAssociationPayload, KeyExchangePayload, NoncePayload, NotifyPayload
+]
+
+
+@dataclass(frozen=True)
+class IkeMessage:
+    header: IkeHeader
+    payloads: List[IkePayload]
+def parse_ike_payload_header(data: bytes) -> Tuple[PayloadType, bool, int]:
     return (
-        NextPayload(int.from_bytes(data[0:1], "big")),
+        PayloadType(int.from_bytes(data[0:1], "big")),
         bool(data[1] & 0b10000000),
         int.from_bytes(data[2:4], "big"),
     )
 
 
-def parse_packet(data: bytes) -> Tuple[IkeHeader, List[IkePayload]]:
+def parse_message(data: bytes) -> IkeMessage:
     header = IkeHeader.parse(data[0:28])
     print("Saw header", header)
     assert header.initiator_spi != 0
@@ -403,26 +548,41 @@ def parse_packet(data: bytes) -> Tuple[IkeHeader, List[IkePayload]]:
     payloads: List[IkePayload] = []
     while True:
         next_payload_type, critical, length = parse_ike_payload_header(data[:4])
-        print(next_payload_type, critical, length)
 
         assert length >= 4
         assert len(data) >= length
         raw_payload = data[4:length]
-        if payload_type == NextPayload.SECURITY_ASSOCIATION:
+        parsed_payload: IkePayload
+        if payload_type == PayloadType.SECURITY_ASSOCIATION:
             parsed_payload = SecurityAssociationPayload.parse(raw_payload)
             print(parsed_payload)
             payloads.append(parsed_payload)
+        elif payload_type == PayloadType.KEY_EXCHANGE:
+            parsed_payload = KeyExchangePayload.parse(raw_payload)
+            print(parsed_payload)
+            payloads.append(parsed_payload)
+        elif payload_type == PayloadType.NONCE:
+            parsed_payload = NoncePayload.parse(raw_payload)
+            print(parsed_payload)
+            payloads.append(parsed_payload)
+        elif payload_type == PayloadType.NOTIFY:
+            parsed_payload = NotifyPayload.parse(raw_payload)
+            print(parsed_payload)
+            payloads.append(parsed_payload)
         else:
+            # We have to fail if we don't parse a payload which is marked as critical
             print(payload_type, raw_payload.hex())
+            assert not critical, "Unsupported critical payload seen, failing."
 
-        if next_payload_type == NextPayload.NO_NEXT_PAYLOAD:
+        if next_payload_type == PayloadType.NO_NEXT_PAYLOAD:
             assert len(data) == length
             break
         else:
             payload_type = next_payload_type
             data = data[length:]
 
-    return header, payloads
+    return IkeMessage(header, payloads)
+
 
 
 def main() -> None:
@@ -438,7 +598,7 @@ def main() -> None:
             # parsing as we go.
             data, addr = sock.recvfrom(8024)
             print("received message: %s" % data.hex())
-            header, payloads = parse_packet(data)
+            message = parse_message(data)
 
         except Exception as e:
             print("Failed with exception", traceback.format_exc())

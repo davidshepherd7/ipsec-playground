@@ -26,8 +26,12 @@ strongswan:
 	docker build --tag strongswan ./strongswan/
 
 .PHONY: ipsecpy
-ipsecpy:
+ipsecpy: typecheck
 	docker build --tag ipsecpy ./ipsecpy/
+
+.PHONY: typecheck
+typecheck:
+	cd ./ipsecpy && ./venv/bin/mypy ipsecpy/
 
 .PHONY: ubuntu-with-tools
 ubuntu-with-tools:
